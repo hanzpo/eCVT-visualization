@@ -22,6 +22,23 @@ const mat = {
     color: 0x9fb2c8, metalness: 0.7, roughness: 0.3,
     transparent: true, opacity: 0.32, depthWrite: false,
   }),
+  ghostBlock: new THREE.MeshStandardMaterial({
+    color: 0x8fa0b5, metalness: 0.6, roughness: 0.35,
+    transparent: true, opacity: 0.22, depthWrite: false,
+  }),
+  // color-coded drivetrain links: amber = engine→carrier,
+  // green = MG1→sun, cyan = MG2→ring (matches UI colors)
+  linkAmber: new THREE.MeshStandardMaterial({ color: 0xcf8c34, metalness: 0.7, roughness: 0.35, emissive: 0xcf8c34, emissiveIntensity: 0.12 }),
+  linkGreen: new THREE.MeshStandardMaterial({ color: 0x5fb46b, metalness: 0.7, roughness: 0.35, emissive: 0x5fb46b, emissiveIntensity: 0.12 }),
+  linkCyan: new THREE.MeshStandardMaterial({ color: 0x3fb6c6, metalness: 0.7, roughness: 0.35, emissive: 0x3fb6c6, emissiveIntensity: 0.12 }),
+  ghostAmber: new THREE.MeshStandardMaterial({
+    color: 0xe0a45c, metalness: 0.6, roughness: 0.3,
+    transparent: true, opacity: 0.4, depthWrite: false,
+  }),
+  ghostCyan: new THREE.MeshStandardMaterial({
+    color: 0x59c7d6, metalness: 0.6, roughness: 0.3,
+    transparent: true, opacity: 0.42, depthWrite: false,
+  }),
   tire: new THREE.MeshStandardMaterial({ color: 0x15171b, metalness: 0.1, roughness: 0.95 }),
   rim: new THREE.MeshStandardMaterial({ color: 0x6e7681, metalness: 0.85, roughness: 0.35 }),
   cable: new THREE.MeshStandardMaterial({ color: 0xc4581a, metalness: 0.2, roughness: 0.6 }),
@@ -71,7 +88,7 @@ function makeLabel(text, color, anchor, { rpm = false, lead = 26 } = {}) {
   return { obj, el, rpmEl: rpm ? el.querySelector('.label3d-rpm') : null };
 }
 
-function makeMotor({ x, statorR, statorLen, rotorR, group }) {
+function makeMotor({ x, statorR, statorLen, rotorR, group, capMat }) {
   const g = new THREE.Group();
   g.position.x = x;
   const stator = cyl(statorR, statorLen, mat.housing, 48);
@@ -89,13 +106,20 @@ function makeMotor({ x, statorR, statorLen, rotorR, group }) {
   const rotor = new THREE.Group();
   const rotorBody = cyl(rotorR, statorLen + 0.5, mat.steel, 36);
   rotor.add(rotorBody);
+  if (capMat) {
+    for (const side of [-1, 1]) {
+      const cap = cyl(rotorR + 0.04, 0.14, capMat, 36);
+      cap.position.x = side * ((statorLen + 0.5) / 2 - 0.05);
+      rotor.add(cap);
+    }
+  }
   addMarkers(rotor, rotorR + 0.01, (statorLen + 0.5) / 2);
   g.add(stator, windL, windR, rotor);
   group.add(g);
   return rotor;
 }
 
-function makeGhostDisc(rOuter, rInner, thickness, holes = 6, holeR = 0.42, holeAt = 0.62) {
+function makeGhostDisc(rOuter, rInner, thickness, holes = 6, holeR = 0.42, holeAt = 0.62, material = mat.ghost) {
   const shape = new THREE.Shape();
   shape.absarc(0, 0, rOuter, 0, Math.PI * 2, false);
   const hub = new THREE.Path();
@@ -110,7 +134,7 @@ function makeGhostDisc(rOuter, rInner, thickness, holes = 6, holeR = 0.42, holeA
   }
   const geo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false });
   geo.translate(0, 0, -thickness / 2);
-  return new THREE.Mesh(geo, mat.ghost);
+  return new THREE.Mesh(geo, material);
 }
 
 export function buildMachine(scene) {
@@ -123,39 +147,65 @@ export function buildMachine(scene) {
   axis.rotation.y = Math.PI / 2;
   root.add(axis);
 
-  /* ---------- ICE engine ---------- */
+  /* ---------- ICE engine — 66° V6 with a visible slider-crank ---------- */
   const engine = new THREE.Group();
   engine.position.set(X.engine, 0.15, 0);
-  const blockM = box(2.5, 2.1, 2.05, mat.block);
-  const head = box(2.5, 0.55, 1.85, mat.cast); head.position.y = 1.3;
-  const cover = box(2.35, 0.4, 1.7, mat.cover); cover.position.y = 1.75;
-  for (let i = 0; i < 4; i++) {
-    const coil = cyl(0.14, 0.3, mat.cover, 16);
-    coil.rotation.z = 0; coil.geometry = new THREE.CylinderGeometry(0.14, 0.14, 0.3, 16);
-    coil.position.set(-0.9 + i * 0.6, 2.05, 0);
-    engine.add(coil);
-    const rib = box(0.08, 0.42, 1.72, mat.cast);
-    rib.position.set(-0.9 + i * 0.6 + 0.3, 1.75, 0);
-    engine.add(rib);
+  const V6 = {
+    bank: THREE.MathUtils.degToRad(33), // half the V angle
+    throw: 0.22, rod: 0.62,
+    spacing: 0.62, stagger: 0.28, x0: -0.79,
+  };
+  const crankcase = box(2.4, 1.0, 1.6, mat.block);
+  crankcase.position.y = -0.5;
+  const pan = box(2.1, 0.42, 1.3, mat.cover);
+  pan.position.y = -1.15;
+  const plenum = box(1.7, 0.3, 0.8, mat.cover);
+  plenum.position.y = 1.2;
+  engine.add(crankcase, pan, plenum);
+
+  // ghosted cylinder banks so the pistons stay visible
+  for (const s of [1, -1]) {
+    const uy = Math.cos(s * V6.bank), uz = Math.sin(s * V6.bank);
+    const bank = box(2.4, 1.3, 0.74, mat.ghostBlock);
+    bank.rotation.x = s * V6.bank;
+    bank.position.set(0, uy * 0.75, uz * 0.75);
+    const cover = box(2.4, 0.16, 0.78, mat.cover);
+    cover.rotation.x = s * V6.bank;
+    cover.position.set(0, uy * 1.46, uz * 1.46);
+    engine.add(bank, cover);
   }
-  const pan = box(2.1, 0.5, 1.6, mat.cover); pan.position.y = -1.25;
-  engine.add(blockM, head, cover, pan);
-  // exhaust manifold on the front face
-  for (let i = 0; i < 4; i++) {
-    const bend = new THREE.Mesh(
-      new THREE.TorusGeometry(0.42, 0.09, 10, 14, Math.PI / 2),
-      mat.darkSteel,
-    );
-    bend.position.set(-0.9 + i * 0.6, 0.72, 1.12);
-    bend.rotation.y = Math.PI / 2;
-    engine.add(bend);
-    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.6, 10), mat.darkSteel);
-    pipe.position.set(-0.9 + i * 0.6, 0.42, 1.54);
-    engine.add(pipe);
+
+  // crankshaft: 3 pins at 120°, each shared by one cylinder per bank
+  const crank = new THREE.Group();
+  crank.add(cyl(0.12, 2.3, mat.darkSteel, 16));
+  for (let k = 0; k < 3; k++) {
+    const a = k * ((Math.PI * 2) / 3);
+    const px = V6.x0 + k * V6.spacing + V6.stagger / 2;
+    const pin = cyl(0.09, 0.5, mat.darkSteel, 12);
+    pin.position.set(px, Math.cos(a) * V6.throw, Math.sin(a) * V6.throw);
+    crank.add(pin);
+    for (const side of [-1, 1]) {
+      const web = box(0.08, 0.34, 0.2, mat.darkSteel);
+      web.position.set(px + side * 0.21, Math.cos(a) * V6.throw * 0.5, Math.sin(a) * V6.throw * 0.5);
+      web.rotation.x = a;
+      crank.add(web);
+    }
   }
-  const collector = box(2.1, 0.24, 0.24, mat.darkSteel);
-  collector.position.set(-0.05, 0.06, 1.54);
-  engine.add(collector);
+  engine.add(crank);
+
+  const pistons = [];
+  for (let i = 0; i < 6; i++) {
+    const s = i < 3 ? 1 : -1;
+    const k = i % 3;
+    const piston = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.32, 20), mat.steel);
+    piston.rotation.x = s * V6.bank;
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 1, 10), mat.darkSteel);
+    engine.add(piston, rod);
+    pistons.push({
+      piston, rod, s, k,
+      x: V6.x0 + k * V6.spacing + (s === 1 ? 0 : V6.stagger),
+    });
+  }
   root.add(engine);
 
   // bell housing joining engine to the transaxle
@@ -175,17 +225,17 @@ export function buildMachine(scene) {
   pulley.add(pMark);
   axis.add(pulley);
 
-  // input shaft engine → carrier
-  const input = cyl(0.16, 3.7, mat.steel, 20);
+  // input shaft engine → carrier (amber)
+  const input = cyl(0.18, 3.7, mat.linkAmber, 20);
   input.position.x = (X.pulley + X.planetary) / 2 + 0.1;
   root.add(input);
 
   /* ---------- MG1 / MG2 ---------- */
-  const mg1Rotor = makeMotor({ x: X.mg1, statorR: 1.5, statorLen: 1.45, rotorR: 0.72, group: root });
-  const mg2Rotor = makeMotor({ x: X.mg2, statorR: 1.85, statorLen: 1.7, rotorR: 0.95, group: root });
+  const mg1Rotor = makeMotor({ x: X.mg1, statorR: 1.5, statorLen: 1.45, rotorR: 0.72, group: root, capMat: mat.linkGreen });
+  const mg2Rotor = makeMotor({ x: X.mg2, statorR: 1.85, statorLen: 1.7, rotorR: 0.95, group: root, capMat: mat.linkCyan });
 
-  // hollow sun shaft MG1 → sun gear
-  const sunShaft = cyl(0.44, 1.65, mat.brass, 24);
+  // hollow sun shaft MG1 → sun gear (green)
+  const sunShaft = cyl(0.5, 1.65, mat.linkGreen, 24);
   sunShaft.position.x = (X.mg1 + 0.75 + X.planetary) / 2;
   root.add(sunShaft);
 
@@ -194,25 +244,24 @@ export function buildMachine(scene) {
   planetary.position.z = X.planetary;
   axis.add(planetary);
 
-  const sun = makeGear({ z: Z.sun, thickness: 0.5, hole: 0.3, material: mat.brass });
+  const sun = makeGear({ z: Z.sun, thickness: 0.5, hole: 0.3, material: mat.linkGreen });
   planetary.add(sun);
 
   const ring = makeRingGear({ thickness: 0.55, material: mat.darkSteel });
   planetary.add(ring);
 
   const carrier = new THREE.Group();
-  const plate = makeGhostDisc(2.35, 0.55, 0.12, 4, 0.5, 0.55);
+  const plate = makeGhostDisc(2.35, 0.55, 0.12, 4, 0.5, 0.55, mat.ghostAmber);
   plate.position.z = -0.45;
   carrier.add(plate);
-  const hub = cyl(0.5, 0.35, mat.cast, 24);
-  hub.rotation.z = 0; hub.geometry = new THREE.CylinderGeometry(0.5, 0.5, 0.35, 24);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.35, 24), mat.linkAmber);
   hub.rotation.x = Math.PI / 2;
   hub.position.z = -0.55;
   carrier.add(hub);
   const planets = [];
   for (let k = 0; k < PLANETS; k++) {
     const a = (k / PLANETS) * Math.PI * 2;
-    const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.95, 16), mat.steel);
+    const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.95, 16), mat.linkAmber);
     pin.rotation.x = Math.PI / 2;
     pin.position.set(Math.cos(a) * CARRIER_R, Math.sin(a) * CARRIER_R, -0.1);
     carrier.add(pin);
@@ -223,13 +272,18 @@ export function buildMachine(scene) {
   }
   planetary.add(carrier);
 
-  // MG2 → ring flange (ghosted so the gearset stays visible)
-  const flange = makeGhostDisc(2.8, 1.0, 0.1, 6, 0.45, 0.6);
+  // MG2 → ring flange (ghosted cyan so the gearset stays visible)
+  const flange = makeGhostDisc(2.8, 1.0, 0.1, 6, 0.45, 0.6, mat.ghostCyan);
   flange.position.z = X.planetary + 0.5;
   axis.add(flange);
-  const flangeTube = cyl(1.0, 1.1, mat.ghost, 32);
+  const flangeTube = cyl(1.0, 1.1, mat.ghostCyan, 32);
   flangeTube.position.x = X.planetary + 1.05;
   root.add(flangeTube);
+  // cyan rim marking the ring gear as MG2's element
+  const ringRim = new THREE.Mesh(new THREE.TorusGeometry(2.82, 0.06, 10, 60), mat.linkCyan);
+  ringRim.rotation.y = Math.PI / 2;
+  ringRim.position.x = X.planetary + 0.32;
+  root.add(ringRim);
 
   /* ---------- final drive + wheels ---------- */
   const finalAxis = new THREE.Group();
@@ -337,7 +391,7 @@ export function buildMachine(scene) {
 
   /* ---------- labels ---------- */
   const labels = {
-    engine: makeLabel('Engine', '#ffb454', new THREE.Vector3(X.engine, 2.75, 0), { rpm: true }),
+    engine: makeLabel('Engine', '#ffb454', new THREE.Vector3(X.engine, 2.35, 0), { rpm: true }),
     mg1: makeLabel('MG1', '#74d67e', new THREE.Vector3(X.mg1, 2.15, 0), { rpm: true }),
     planetary: makeLabel('Planetary gearset', '#e8e0d0', new THREE.Vector3(X.planetary, 3.85, 0), { lead: 20 }),
     mg2: makeLabel('MG2', '#4fd6e3', new THREE.Vector3(X.mg2, 2.55, 0), { rpm: true }),
@@ -364,6 +418,8 @@ export function buildMachine(scene) {
   const VIS = 0.002; // rpm → rad/s on screen
   let sunA = 0, carA = 0;
   const P2 = Math.PI * 2;
+  const _dir = new THREE.Vector3();
+  const _up = new THREE.Vector3(0, 1, 0);
 
   function update(sim, dt, time) {
     sunA = (sunA + sim.sun * VIS * dt) % P2;
@@ -373,6 +429,25 @@ export function buildMachine(scene) {
     carrier.rotation.z = carA;
     pulley.rotation.z = carA;
     mg1Rotor.rotation.x = sunA;
+
+    // V6 slider-crank: crank spins at engine speed, pistons follow
+    crank.rotation.x = carA;
+    for (const p of pistons) {
+      const theta = carA + p.k * ((Math.PI * 2) / 3);
+      const b = p.s * V6.bank;
+      const rel = theta - b;
+      const slide = V6.throw * Math.cos(rel) +
+        Math.sqrt(V6.rod * V6.rod - (V6.throw * Math.sin(rel)) ** 2);
+      const uy = Math.cos(b), uz = Math.sin(b);
+      const pinY = Math.cos(theta) * V6.throw;
+      const pinZ = Math.sin(theta) * V6.throw;
+      p.piston.position.set(p.x, uy * (slide + 0.08), uz * (slide + 0.08));
+      p.rod.position.set(p.x, (pinY + uy * slide) / 2, (pinZ + uz * slide) / 2);
+      _dir.set(0, uy * slide - pinY, uz * slide - pinZ);
+      const len = _dir.length();
+      p.rod.scale.y = len;
+      p.rod.quaternion.setFromUnitVectors(_up, _dir.divideScalar(len));
+    }
 
     let ringA = 0;
     for (let k = 0; k < PLANETS; k++) {

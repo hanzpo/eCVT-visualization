@@ -54,7 +54,7 @@ export function buildUI(onMode) {
         <span class="lg"><i class="sw sw-cyan"></i>MG1 → MG2</span>
         <span class="lg"><i class="sw sw-green"></i>Charging</span>
       </div>
-      <div class="ft-hint">Drag to rotate, scroll to zoom. Simplified geometry, real gear ratios (30:23:78).</div>
+      <div class="ft-hint">Shaft colors show what connects to what: engine → carrier (amber), MG1 → sun gear (green), MG2 → ring gear (cyan).<br>Drag to rotate, scroll to zoom. Simplified geometry, real gear ratios (30:23:78).</div>
     </footer>
   `;
 
