@@ -3,6 +3,9 @@
   // Deploy with: npm run deploy   (requires `wrangler login` once)
   "name": "ecvt-visualization",
   "compatibility_date": "2026-07-01",
+  "routes": [
+    { "pattern": "cvt.hanzpo.com", "custom_domain": true }
+  ],
   "assets": {
     "directory": "./dist"
   }
