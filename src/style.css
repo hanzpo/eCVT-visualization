@@ -49,7 +49,6 @@ html, body {
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
-  box-shadow: inset 3px 0 0 var(--c, #fff);
 }
 .label3d-rpm {
   margin-top: 2px;

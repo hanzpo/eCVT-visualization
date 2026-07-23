@@ -89,10 +89,9 @@ function addMarkers(parent, radius, halfLen, count = 3) {
   }
 }
 
-function makeLabel(text, color, anchor, { rpm = false, lead = 26 } = {}) {
+function makeLabel(text, anchor, { rpm = false, lead = 26 } = {}) {
   const el = document.createElement('div');
   el.className = 'label3d';
-  el.style.setProperty('--c', color);
   el.style.setProperty('--lead', lead + 'px');
   el.innerHTML = `<span class="label3d-name">${text}</span>` +
     (rpm ? `<span class="label3d-rpm">0 rpm</span>` : '');
@@ -131,6 +130,47 @@ function makeMotor({ x, statorR, statorLen, rotorR, group, capMat }) {
   g.add(stator, windL, windR, rotor);
   group.add(g);
   return rotor;
+}
+
+// Curved direction arrow around a shaft. Built counterclockwise in the
+// rotation plane as a wide extruded ribbon (the default camera views that
+// plane nearly edge-on, so it needs axial width to stay readable), with the
+// arrowhead landing at the camera-facing side of the shaft. update() mirrors
+// it for negative speeds and fades it in with |rpm|.
+function makeSpinArrow(radius, color) {
+  const g = new THREE.Group();
+  const material = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+  });
+  const W = 0.34, T = 0.09;
+  const START = -0.6, END = Math.PI + 0.25;
+  const band = new THREE.Shape();
+  band.absarc(0, 0, radius + T / 2, START, END, false);
+  band.absarc(0, 0, radius - T / 2, END, START, true);
+  const arc = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(band, { depth: W, bevelEnabled: false, curveSegments: 48 }), material);
+  arc.position.z = -W / 2;
+  const bx = radius * Math.cos(END), by = radius * Math.sin(END);
+  const tx = -Math.sin(END), ty = Math.cos(END);
+  const nx = Math.cos(END), ny = Math.sin(END);
+  const tri = new THREE.Shape();
+  tri.moveTo(bx + nx * 0.24, by + ny * 0.24);
+  tri.lineTo(bx - nx * 0.24, by - ny * 0.24);
+  tri.lineTo(bx + tx * 0.5, by + ty * 0.5);
+  tri.closePath();
+  const head = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(tri, { depth: W + 0.12, bevelEnabled: false }), material);
+  head.position.z = -(W + 0.12) / 2;
+  g.add(arc, head);
+  g.rotation.y = Math.PI / 2;
+  return { g, material };
+}
+
+function setSpinArrow(arrow, rpm) {
+  const speed = Math.abs(rpm);
+  arrow.g.visible = speed > 30;
+  arrow.material.opacity = Math.min(1, speed / 300) * 0.9;
+  arrow.g.scale.y = Math.sign(rpm) || 1;
 }
 
 function makeGhostDisc(rOuter, rInner, thickness, holes = 6, holeR = 0.42, holeAt = 0.62, material = mat.ghost) {
@@ -355,6 +395,19 @@ export function buildMachine(scene) {
     wheels.push(w);
   }
 
+  /* ---------- spin-direction arrows ---------- */
+  const spinArrows = {
+    engine: makeSpinArrow(1.1, COLORS.amber),
+    mg1: makeSpinArrow(2.0, COLORS.green),
+    mg2: makeSpinArrow(1.3, COLORS.cyan),
+  };
+  spinArrows.engine.g.position.x = -8.5;
+  spinArrows.mg1.g.position.x = -2.3;
+  // phase MG1's arrow so its head clears the green sun shaft/gear behind it
+  spinArrows.mg1.g.rotation.x = 1.05;
+  spinArrows.mg2.g.position.x = 2.6;
+  for (const a of Object.values(spinArrows)) root.add(a.g);
+
   /* ---------- battery + inverter + cables ---------- */
   const pcu = new THREE.Group();
   pcu.position.set(-2.6, 2.95, -2.3);
@@ -424,16 +477,19 @@ export function buildMachine(scene) {
   root.traverse((o) => {
     if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; }
   });
+  for (const a of Object.values(spinArrows)) {
+    a.g.traverse((o) => { o.castShadow = false; });
+  }
 
   /* ---------- labels ---------- */
   const labels = {
-    engine: makeLabel('Engine', '#ffb454', new THREE.Vector3(X.engine, 2.35, 0), { rpm: true }),
-    mg1: makeLabel('MG1', '#74d67e', new THREE.Vector3(X.mg1, 2.15, 0), { rpm: true }),
-    planetary: makeLabel('Planetary gearset', '#e8e0d0', new THREE.Vector3(X.planetary, 3.85, 0), { lead: 20 }),
-    mg2: makeLabel('MG2', '#4fd6e3', new THREE.Vector3(X.mg2, 2.55, 0), { rpm: true }),
-    pcu: makeLabel('Inverter', '#d0d6de', new THREE.Vector3(-3.1, 4.55, -2.3), { lead: 30 }),
-    battery: makeLabel('Battery', '#74d67e', new THREE.Vector3(4.4, -6.4, -3.2), { lead: 14 }),
-    final: makeLabel('Final drive to wheels', '#d0d6de', new THREE.Vector3(FINAL_X, AXLE_Y - 2.4, 1.2), { lead: 14 }),
+    engine: makeLabel('Engine', new THREE.Vector3(X.engine, 2.35, 0), { rpm: true }),
+    mg1: makeLabel('MG1', new THREE.Vector3(X.mg1, 2.15, 0), { rpm: true }),
+    planetary: makeLabel('Planetary gearset', new THREE.Vector3(X.planetary, 3.85, 0), { lead: 20 }),
+    mg2: makeLabel('MG2', new THREE.Vector3(X.mg2, 2.55, 0), { rpm: true }),
+    pcu: makeLabel('Inverter', new THREE.Vector3(-3.1, 4.55, -2.3), { lead: 30 }),
+    battery: makeLabel('Battery', new THREE.Vector3(4.4, -6.4, -3.2), { lead: 14 }),
+    final: makeLabel('Final drive to wheels', new THREE.Vector3(FINAL_X, AXLE_Y - 2.4, 1.2), { lead: 14 }),
   };
   for (const l of Object.values(labels)) scene.add(l.obj);
 
@@ -542,6 +598,10 @@ export function buildMachine(scene) {
       }
       pos.needsUpdate = true;
     }
+
+    setSpinArrow(spinArrows.engine, sim.engine);
+    setSpinArrow(spinArrows.mg1, sim.sun);
+    setSpinArrow(spinArrows.mg2, sim.ring);
 
     // battery indicator
     const b = sim.mode.batt;
