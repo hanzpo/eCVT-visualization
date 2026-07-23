@@ -10,8 +10,9 @@ Built with vanilla [Three.js](https://threejs.org/) + Vite. No framework.
 The gear animation uses the real THS planetary tooth counts (sun 30, planet 23,
 ring 78) and the actual kinematic constraint (Willis equation), so gear speeds
 and mesh phases are physically consistent. Geometry is simplified — the MG2
-reduction gear and counter gear are omitted, and the ring gear drives the final
-drive directly.
+reduction gear is omitted and the chain drive is replaced by a gear pair, but
+the ring gear reaches the wheels through a two-stage reduction (counter gear +
+final drive) like the real transaxle.
 
 ## Develop
 

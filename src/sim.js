@@ -7,8 +7,6 @@ import { Z } from './gears.js';
 export const sunRPM = (engine, ring) =>
   ((Z.sun + Z.ring) * engine - Z.ring * ring) / Z.sun;
 
-export const finalRatio = Z.ringOut / Z.final;
-
 // flows: battPcu (+ = battery→inverter), pcuMg1 (+ = inverter→MG1),
 // pcuMg2 (+ = inverter→MG2). Colors: amber = battery discharging,
 // green = charging, cyan = MG1→MG2 electrical path.
@@ -70,6 +68,5 @@ export class Sim {
       this.flow[key] += ((this.mode.flows[key].v || 0) - this.flow[key]) * k;
     }
     this.sun = sunRPM(this.engine, this.ring);
-    this.axle = -this.ring * finalRatio;
   }
 }

@@ -1,18 +1,23 @@
 import * as THREE from 'three';
 
-// Tooth counts — the actual Toyota HSD (gen 1/2) planetary set,
-// plus a simplified ring-to-final-drive pair.
-export const Z = { sun: 30, planet: 23, ring: 78, ringOut: 90, final: 48 };
+// Tooth counts — the actual Toyota HSD (gen 1/2) planetary set, plus a
+// simplified two-stage final drive (ring → counter/pinion → final gear).
+export const Z = { sun: 30, planet: 23, ring: 78, ringOut: 90, counter: 56, pinion: 16, final: 48 };
 export const MODULE = 0.07;
 
 export const R = {
   sun: (MODULE * Z.sun) / 2,          // 1.05
-  planet: (MODULE * Z.planet) / 2,    // 0.805
   ring: (MODULE * Z.ring) / 2,        // 2.73
   ringOut: (MODULE * Z.ringOut) / 2,  // 3.15
+  counter: (MODULE * Z.counter) / 2,  // 1.96
+  pinion: (MODULE * Z.pinion) / 2,    // 0.56
   final: (MODULE * Z.final) / 2,      // 1.68
 };
-export const CARRIER_R = R.sun + R.planet;
+// Toyota's tooth counts only close with profile-shifted teeth (30 + 2·23 ≠ 78);
+// at a uniform module the planets would sit one module shy of the ring. Draw
+// the planets slightly oversized so both meshes contact at full depth.
+R.planet = (R.ring - R.sun) / 2;      // 0.84 (uniform module would give 0.805)
+export const CARRIER_R = (R.sun + R.ring) / 2;
 
 const mod1 = (x) => ((x % 1) + 1) % 1;
 
@@ -34,8 +39,8 @@ function gearPoints(z, rA, rB) {
 const EXTRUDE = { bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 1 };
 
 // External spur gear, extruded along local Z, centered on origin.
-export function makeGear({ z, thickness, hole = 0.3, material }) {
-  const r = (MODULE * z) / 2;
+export function makeGear({ z, thickness, hole = 0.3, radius, material }) {
+  const r = radius ?? (MODULE * z) / 2;
   const shape = new THREE.Shape(gearPoints(z, r - 1.25 * MODULE, r + MODULE));
   if (hole > 0) {
     const h = new THREE.Path();

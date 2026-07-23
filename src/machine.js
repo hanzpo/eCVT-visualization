@@ -47,8 +47,9 @@ const mat = {
 };
 
 const PLANETS = 4;
-const AXLE_Y = -(R.ringOut + R.final);      // -4.83
-export const GROUND_Y = AXLE_Y - 1.8;        // tire radius 1.8
+const COUNTER_Y = -(R.ringOut + R.counter);       // -5.11
+const AXLE_Y = COUNTER_Y - (R.pinion + R.final);  // -7.35
+export const GROUND_Y = AXLE_Y - 1.8;             // tire radius 1.8
 
 const X = {
   engine: -6.6, pulley: -8.05, mg1: -3.5, planetary: -1.15, mg2: 1.15,
@@ -62,6 +63,19 @@ function cyl(r, len, material, seg = 40) {
 
 function box(w, h, d, material) {
   return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+}
+
+// hollow tube along X, so a shaft can visibly pass through it
+function tubeX(rOuter, rInner, len, material) {
+  const shape = new THREE.Shape();
+  shape.absarc(0, 0, rOuter, 0, Math.PI * 2, false);
+  const bore = new THREE.Path();
+  bore.absarc(0, 0, rInner, 0, Math.PI * 2, true);
+  shape.holes.push(bore);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false, curveSegments: 24 });
+  geo.translate(0, 0, -len / 2);
+  geo.rotateY(Math.PI / 2);
+  return new THREE.Mesh(geo, material);
 }
 
 // Radial stripe markers so spinning cylinders read as spinning.
@@ -225,18 +239,19 @@ export function buildMachine(scene) {
   pulley.add(pMark);
   axis.add(pulley);
 
-  // input shaft engine → carrier (amber)
-  const input = cyl(0.18, 3.7, mat.linkAmber, 20);
-  input.position.x = (X.pulley + X.planetary) / 2 + 0.1;
+  // input shaft engine → carrier (amber): runs through MG1's hollow rotor,
+  // the sun shaft, and the sun gear bore to the carrier hub on the far side
+  const input = cyl(0.18, 5.8, mat.linkAmber, 20);
+  input.position.x = -3.6;
   root.add(input);
 
   /* ---------- MG1 / MG2 ---------- */
   const mg1Rotor = makeMotor({ x: X.mg1, statorR: 1.5, statorLen: 1.45, rotorR: 0.72, group: root, capMat: mat.linkGreen });
   const mg2Rotor = makeMotor({ x: X.mg2, statorR: 1.85, statorLen: 1.7, rotorR: 0.95, group: root, capMat: mat.linkCyan });
 
-  // hollow sun shaft MG1 → sun gear (green)
-  const sunShaft = cyl(0.5, 1.65, mat.linkGreen, 24);
-  sunShaft.position.x = (X.mg1 + 0.75 + X.planetary) / 2;
+  // hollow sun shaft MG1 → sun gear (green), input shaft visible inside
+  const sunShaft = tubeX(0.38, 0.22, 1.32, mat.linkGreen);
+  sunShaft.position.x = -2.04;
   root.add(sunShaft);
 
   /* ---------- planetary gearset ---------- */
@@ -244,20 +259,22 @@ export function buildMachine(scene) {
   planetary.position.z = X.planetary;
   axis.add(planetary);
 
-  const sun = makeGear({ z: Z.sun, thickness: 0.5, hole: 0.3, material: mat.linkGreen });
+  const sun = makeGear({ z: Z.sun, thickness: 0.5, hole: 0.24, material: mat.linkGreen });
   planetary.add(sun);
 
   const ring = makeRingGear({ thickness: 0.55, material: mat.darkSteel });
   planetary.add(ring);
 
   const carrier = new THREE.Group();
-  const plate = makeGhostDisc(2.35, 0.55, 0.12, 4, 0.5, 0.55, mat.ghostAmber);
-  plate.position.z = -0.45;
-  carrier.add(plate);
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.35, 24), mat.linkAmber);
+  const plateBack = makeGhostDisc(2.35, 0.55, 0.12, 4, 0.5, 0.55, mat.ghostAmber);
+  plateBack.position.z = -0.45;
+  const plateFront = makeGhostDisc(2.35, 0.28, 0.12, 4, 0.5, 0.55, mat.ghostAmber);
+  plateFront.position.z = 0.42;
+  // the input shaft emerges past the sun gear and drives this hub
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.22, 24), mat.linkAmber);
   hub.rotation.x = Math.PI / 2;
-  hub.position.z = -0.55;
-  carrier.add(hub);
+  hub.position.z = 0.42;
+  carrier.add(plateBack, plateFront, hub);
   const planets = [];
   for (let k = 0; k < PLANETS; k++) {
     const a = (k / PLANETS) * Math.PI * 2;
@@ -265,7 +282,7 @@ export function buildMachine(scene) {
     pin.rotation.x = Math.PI / 2;
     pin.position.set(Math.cos(a) * CARRIER_R, Math.sin(a) * CARRIER_R, -0.1);
     carrier.add(pin);
-    const planet = makeGear({ z: Z.planet, thickness: 0.5, hole: 0.17, material: mat.steel });
+    const planet = makeGear({ z: Z.planet, thickness: 0.5, hole: 0.17, radius: R.planet, material: mat.steel });
     planet.position.set(Math.cos(a) * CARRIER_R, Math.sin(a) * CARRIER_R, 0);
     planetary.add(planet);
     planets.push(planet);
@@ -274,10 +291,10 @@ export function buildMachine(scene) {
 
   // MG2 → ring flange (ghosted cyan so the gearset stays visible)
   const flange = makeGhostDisc(2.8, 1.0, 0.1, 6, 0.45, 0.6, mat.ghostCyan);
-  flange.position.z = X.planetary + 0.5;
+  flange.position.z = X.planetary + 0.62;
   axis.add(flange);
   const flangeTube = cyl(1.0, 1.1, mat.ghostCyan, 32);
-  flangeTube.position.x = X.planetary + 1.05;
+  flangeTube.position.x = X.planetary + 1.17;
   root.add(flangeTube);
   // cyan rim marking the ring gear as MG2's element
   const ringRim = new THREE.Mesh(new THREE.TorusGeometry(2.82, 0.06, 10, 60), mat.linkCyan);
@@ -285,18 +302,37 @@ export function buildMachine(scene) {
   ringRim.position.x = X.planetary + 0.32;
   root.add(ringRim);
 
-  /* ---------- final drive + wheels ---------- */
+  /* ---------- two-stage final drive + wheels ---------- */
+  // ring external teeth → counter gear; its pinion → final gear. Net
+  // reduction, so the wheels turn slower than MG2 and in the same direction.
+  const FINAL_X = X.planetary + 0.7;
+
+  const counterAxis = new THREE.Group();
+  counterAxis.position.y = COUNTER_Y;
+  counterAxis.rotation.y = Math.PI / 2;
+  root.add(counterAxis);
+
+  const counterGear = makeGear({ z: Z.counter, thickness: 0.5, hole: 0.2, material: mat.darkSteel });
+  counterGear.position.z = X.planetary;
+  const pinionGear = makeGear({ z: Z.pinion, thickness: 0.5, hole: 0.13, material: mat.darkSteel });
+  pinionGear.position.z = FINAL_X;
+  counterAxis.add(counterGear, pinionGear);
+
+  const counterShaft = cyl(0.19, 0.85, mat.darkSteel, 16);
+  counterShaft.position.set((X.planetary + FINAL_X) / 2, COUNTER_Y, 0);
+  root.add(counterShaft);
+
   const finalAxis = new THREE.Group();
   finalAxis.position.y = AXLE_Y;
   finalAxis.rotation.y = Math.PI / 2;
   root.add(finalAxis);
 
   const finalGear = makeGear({ z: Z.final, thickness: 0.55, hole: 0.3, material: mat.darkSteel });
-  finalGear.position.z = X.planetary;
+  finalGear.position.z = FINAL_X;
   finalAxis.add(finalGear);
 
   const diff = cyl(0.75, 1.3, mat.cast, 28);
-  diff.position.set(X.planetary + 0.95, AXLE_Y, 0);
+  diff.position.set(FINAL_X + 0.95, AXLE_Y, 0);
   root.add(diff);
 
   const axle = cyl(0.14, 12.6, mat.darkSteel, 16);
@@ -332,7 +368,7 @@ export function buildMachine(scene) {
   root.add(pcu);
 
   const battery = new THREE.Group();
-  battery.position.set(3.8, -5.0, -3.6);
+  battery.position.set(3.8, -7.48, -3.6);
   const battBody = box(3.2, 1.3, 1.8, mat.battery);
   battery.add(battBody);
   for (let i = 0; i < 7; i++) {
@@ -357,7 +393,7 @@ export function buildMachine(scene) {
   const cablePaths = {
     pcuMg1: [[-3.6, 2.8, -2.2], [-3.95, 2.4, -1.2], [-3.6, 1.8, -0.3], [-3.5, 1.45, 0]],
     pcuMg2: [[-1.55, 2.8, -2.2], [0.2, 2.6, -1.4], [1.15, 2.15, -0.35], [1.15, 1.8, 0]],
-    battPcu: [[-2.2, 2.8, -3.0], [0.4, 2.3, -3.9], [2.6, -1.2, -4.3], [3.3, -3.8, -3.9], [3.3, -4.35, -3.3]],
+    battPcu: [[-2.2, 2.8, -3.0], [0.4, 2.3, -3.9], [2.6, -2.4, -4.3], [3.3, -6.3, -3.9], [3.3, -6.83, -3.3]],
   };
   const curves = {};
   for (const [key, pts] of Object.entries(cablePaths)) {
@@ -396,8 +432,8 @@ export function buildMachine(scene) {
     planetary: makeLabel('Planetary gearset', '#e8e0d0', new THREE.Vector3(X.planetary, 3.85, 0), { lead: 20 }),
     mg2: makeLabel('MG2', '#4fd6e3', new THREE.Vector3(X.mg2, 2.55, 0), { rpm: true }),
     pcu: makeLabel('Inverter', '#d0d6de', new THREE.Vector3(-3.1, 4.55, -2.3), { lead: 30 }),
-    battery: makeLabel('Battery', '#74d67e', new THREE.Vector3(4.4, -3.9, -3.2), { lead: 14 }),
-    final: makeLabel('Final drive to wheels', '#d0d6de', new THREE.Vector3(X.planetary, AXLE_Y - 2.4, 1.2), { lead: 14 }),
+    battery: makeLabel('Battery', '#74d67e', new THREE.Vector3(4.4, -6.4, -3.2), { lead: 14 }),
+    final: makeLabel('Final drive to wheels', '#d0d6de', new THREE.Vector3(FINAL_X, AXLE_Y - 2.4, 1.2), { lead: 14 }),
   };
   for (const l of Object.values(labels)) scene.add(l.obj);
 
@@ -416,8 +452,15 @@ export function buildMachine(scene) {
 
   /* ---------- per-frame update ---------- */
   const VIS = 0.002; // rpm → rad/s on screen
-  let sunA = 0, carA = 0;
+  let sunA = 0, carA = 0, ringA = 0, counterA = 0, finalA = 0;
   const P2 = Math.PI * 2;
+  // Mesh phases are only defined modulo one tooth pitch; assigned directly
+  // as rigid rotations they strip the accumulated turn from anything not
+  // tooth-symmetric (markers, spokes, flange holes). Integrate each gear's
+  // real speed, then snap to the nearest branch of its mesh phase — correct
+  // net rotation, exact meshing, no drift.
+  const snapToMesh = (mesh, integrated, pitch) =>
+    mesh + pitch * Math.round((integrated - mesh) / pitch);
   const _dir = new THREE.Vector3();
   const _up = new THREE.Vector3(0, 1, 0);
 
@@ -449,20 +492,30 @@ export function buildMachine(scene) {
       p.rod.quaternion.setFromUnitVectors(_up, _dir.divideScalar(len));
     }
 
-    let ringA = 0;
+    let ringMesh = 0;
     for (let k = 0; k < PLANETS; k++) {
       const theta = carA + (k / PLANETS) * P2;
       const phase = meshExternal(sunA, Z.sun, Z.planet, theta);
       const p = planets[k];
       p.position.set(Math.cos(theta) * CARRIER_R, Math.sin(theta) * CARRIER_R, 0);
       p.rotation.z = phase;
-      if (k === 0) ringA = meshInternal(phase, Z.planet, Z.ring, theta);
+      if (k === 0) ringMesh = meshInternal(phase, Z.planet, Z.ring, theta);
     }
+    const wRing = sim.ring * VIS;
+    ringA = snapToMesh(ringMesh, ringA + wRing * dt, P2 / Z.ring);
     ring.rotation.z = ringA;
     flange.rotation.z = ringA;
     mg2Rotor.rotation.x = ringA;
 
-    const finalA = meshExternal(ringA, Z.ringOut, Z.final, -Math.PI / 2);
+    const wCounter = -wRing * (Z.ringOut / Z.counter);
+    counterA = snapToMesh(meshExternal(ringA, Z.ringOut, Z.counter, -Math.PI / 2),
+      counterA + wCounter * dt, P2 / Z.counter);
+    counterGear.rotation.z = counterA;
+    pinionGear.rotation.z = counterA;
+
+    const wFinal = -wCounter * (Z.pinion / Z.final);
+    finalA = snapToMesh(meshExternal(counterA, Z.pinion, Z.final, -Math.PI / 2),
+      finalA + wFinal * dt, P2 / Z.final);
     finalGear.rotation.z = finalA;
     axle.rotation.x = finalA;
     diff.rotation.x = finalA;

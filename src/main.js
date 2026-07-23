@@ -32,12 +32,12 @@ scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.55;
 
 const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 300);
-const CAM_END = new THREE.Vector3(-7.0, 5.0, 23.5);
+const CAM_END = new THREE.Vector3(-7.0, 4.6, 25.0);
 const CAM_START = new THREE.Vector3(-16, 15, 42);
 camera.position.copy(CAM_START);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(-0.4, -1.7, 0);
+controls.target.set(-0.4, -2.2, 0);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.maxDistance = 70;
